@@ -1,0 +1,15 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+.vscode/
+*.swp
+TestResults/
+publish/
+out/
+*.pdb
+*.cache
+*.tmp
+Thumbs.db
