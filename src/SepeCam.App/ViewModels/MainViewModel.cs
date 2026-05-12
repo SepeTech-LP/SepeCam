@@ -11,12 +11,15 @@ public sealed class MainViewModel : Observable, IDisposable
     private readonly SettingsStore _store;
     private readonly AppConfig _config;
     private readonly DispatcherTimer _saveDebounce;
+    private readonly DispatcherTimer _setThrottle;
+    private readonly Dictionary<(PropertyKind kind, int id), (int value, bool auto)> _pendingSets = new();
     private CameraDevice? _device;
     private CameraInfo? _selectedInfo;
     private string _statusText = "Ready";
     private bool _previewEnabled = true;
     private bool _launchOnStartup;
     private bool _startMinimized;
+    private bool _showInStartMenu;
 
     public ObservableCollection<CameraInfo> Cameras { get; } = [];
     public ObservableCollection<PropertyViewModel> Properties { get; } = [];
@@ -36,6 +39,7 @@ public sealed class MainViewModel : Observable, IDisposable
         _config = config;
         _launchOnStartup = AutoStartup.IsEnabled();
         _startMinimized = config.StartMinimized;
+        _showInStartMenu = StartMenuShortcut.IsInstalled();
 
         _saveDebounce = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -47,11 +51,28 @@ public sealed class MainViewModel : Observable, IDisposable
             try { _store.Save(_config); } catch { }
         };
 
+        _setThrottle = new DispatcherTimer(DispatcherPriority.Input)
+        {
+            Interval = TimeSpan.FromMilliseconds(60),
+        };
+        _setThrottle.Tick += (_, _) => FlushPendingSets();
+
         RefreshCommand = new RelayCommand(() => Refresh());
         ResetAllCommand = new RelayCommand(ResetAll);
         SaveAllCommand = new RelayCommand(SaveCurrent);
         LockAllCommand = new RelayCommand(() => SetAllLocked(true));
         UnlockAllCommand = new RelayCommand(() => SetAllLocked(false));
+    }
+
+    private void FlushPendingSets()
+    {
+        _setThrottle.Stop();
+        if (_device is null) { _pendingSets.Clear(); return; }
+        foreach (var (key, value) in _pendingSets.ToArray())
+        {
+            _device.TrySet(key.kind, key.id, value.value, value.auto);
+        }
+        _pendingSets.Clear();
     }
 
     private void QueueSave()
@@ -115,6 +136,17 @@ public sealed class MainViewModel : Observable, IDisposable
             if (!Set(ref _startMinimized, value)) return;
             _config.StartMinimized = value;
             QueueSave();
+        }
+    }
+
+    public bool ShowInStartMenu
+    {
+        get => _showInStartMenu;
+        set
+        {
+            if (!Set(ref _showInStartMenu, value)) return;
+            if (value) StartMenuShortcut.Install();
+            else StartMenuShortcut.Uninstall();
         }
     }
 
@@ -196,8 +228,10 @@ public sealed class MainViewModel : Observable, IDisposable
 
     private void OnPropertyChanged(PropertyViewModel vm)
     {
-        if (_device is null || _selectedInfo is null) return;
-        _device.TrySet(vm.Info.Kind, vm.Info.Id, vm.Value, vm.Auto);
+        if (_selectedInfo is null) return;
+
+        _pendingSets[(vm.Info.Kind, vm.Info.Id)] = (vm.Value, vm.Auto);
+        if (!_setThrottle.IsEnabled) _setThrottle.Start();
 
         var key = SettingsStore.DeviceKeyFor(_selectedInfo);
         var profile = _config.GetOrCreate(key, _selectedInfo.FriendlyName);
@@ -208,6 +242,19 @@ public sealed class MainViewModel : Observable, IDisposable
         profile.LastUpdated = DateTime.UtcNow;
 
         QueueSave();
+    }
+
+    public void ReleaseDevice()
+    {
+        FlushPendingSets();
+        _device?.Dispose();
+        _device = null;
+    }
+
+    public void ReacquireDevice()
+    {
+        if (_device is not null || _selectedInfo is null) return;
+        _device = CameraDevice.Open(_selectedInfo);
     }
 
     private void ResetAll()
@@ -252,6 +299,7 @@ public sealed class MainViewModel : Observable, IDisposable
 
     public void Dispose()
     {
+        FlushPendingSets();
         FlushSave();
         _device?.Dispose();
         _device = null;

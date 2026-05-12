@@ -144,7 +144,7 @@ public sealed class CameraDevice : IDisposable
         _cameraControl = null;
         if (_filter is not null)
         {
-            try { Marshal.ReleaseComObject(_filter); } catch { }
+            try { Marshal.FinalReleaseComObject(_filter); } catch { }
             _filter = null;
         }
     }

@@ -7,13 +7,13 @@ public sealed class PreviewSession : IDisposable
 {
     private const int WS_CHILD = 0x40000000;
     private const int WS_CLIPCHILDREN = 0x02000000;
+    private const int State_Stopped = 0;
 
     private IGraphBuilder? _graph;
     private ICaptureGraphBuilder2? _capture;
     private IMediaControl? _control;
     private IBaseFilter? _source;
     private IVideoWindow? _videoWindow;
-    private IntPtr _hostHwnd;
     private bool _running;
 
     public bool Start(CameraInfo info, IntPtr hostHwnd, int width, int height)
@@ -29,7 +29,7 @@ public sealed class PreviewSession : IDisposable
             _capture.SetFiltergraph(_graph);
 
             _source = CameraEnumerator.CreateFilter(info.MonikerDisplayName);
-            if (_source is null) return false;
+            if (_source is null) { Stop(); return false; }
 
             _graph.AddFilter(_source, "Source");
 
@@ -40,14 +40,13 @@ public sealed class PreviewSession : IDisposable
             {
                 pinCat = Guids.PIN_CATEGORY_CAPTURE;
                 hr = _capture.RenderStream(ref pinCat, ref mediaType, _source, null, null);
-                if (hr < 0) return false;
+                if (hr < 0) { Stop(); return false; }
             }
 
             _videoWindow = _graph as IVideoWindow;
             _control = _graph as IMediaControl;
-            if (_videoWindow is null || _control is null) return false;
+            if (_videoWindow is null || _control is null) { Stop(); return false; }
 
-            _hostHwnd = hostHwnd;
             _videoWindow.put_Owner(hostHwnd);
             _videoWindow.put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
             _videoWindow.SetWindowPosition(0, 0, width, height);
@@ -73,23 +72,48 @@ public sealed class PreviewSession : IDisposable
     public void Stop()
     {
         if (!_running && _graph is null) return;
+
         try { _control?.Stop(); } catch { }
+        try { _control?.GetState(2000, out _); } catch { }
+
         try
         {
             if (_videoWindow is not null)
             {
                 _videoWindow.put_Visible(false);
                 _videoWindow.put_Owner(IntPtr.Zero);
+                _videoWindow.put_MessageDrain(IntPtr.Zero);
             }
         }
         catch { }
 
-        if (_source is not null) { try { Marshal.ReleaseComObject(_source); } catch { } _source = null; }
-        if (_capture is not null) { try { Marshal.ReleaseComObject(_capture); } catch { } _capture = null; }
-        if (_graph is not null) { try { Marshal.ReleaseComObject(_graph); } catch { } _graph = null; }
+        try
+        {
+            if (_graph is not null && _source is not null)
+                _graph.RemoveFilter(_source);
+        }
+        catch { }
+
+        try { _capture?.SetFiltergraph(null!); } catch { }
+
+        ReleaseComFinal(ref _source);
+        ReleaseComFinal(ref _capture);
         _videoWindow = null;
         _control = null;
+        ReleaseComFinal(ref _graph);
+
         _running = false;
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
+    private static void ReleaseComFinal<T>(ref T? com) where T : class
+    {
+        if (com is null) return;
+        try { Marshal.FinalReleaseComObject(com); } catch { }
+        com = null;
     }
 
     public void Dispose() => Stop();

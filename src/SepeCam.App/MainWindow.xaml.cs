@@ -37,7 +37,12 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
         Closed += OnClosed;
         StateChanged += OnStateChanged;
-        IsVisibleChanged += (_, _) => SyncPreview();
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) _vm.ReacquireDevice();
+            else { StopPreview(); _vm.ReleaseDevice(); }
+            SyncPreview();
+        };
         PreviewHost.SizeChanged += (_, _) => ResizePreview();
 
         _vm.PreviewToggled += (_, _) => SyncPreview();
@@ -68,10 +73,12 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized)
         {
             StopPreview();
+            _vm.ReleaseDevice();
             Hide();
         }
         else
         {
+            _vm.ReacquireDevice();
             SyncPreview();
         }
     }
@@ -147,6 +154,7 @@ public partial class MainWindow : Window
         if (AllowClose) return;
         e.Cancel = true;
         StopPreview();
+        _vm.ReleaseDevice();
         Hide();
     }
 

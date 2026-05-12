@@ -113,6 +113,7 @@
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                     <CheckBox Content="Preview" IsChecked="{Binding PreviewEnabled}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                    <CheckBox Content="Show in Start Menu" IsChecked="{Binding ShowInStartMenu}" Margin="0,0,16,0" VerticalAlignment="Center"/>
                     <CheckBox Content="Start with Windows" IsChecked="{Binding LaunchOnStartup}" Margin="0,0,16,0" VerticalAlignment="Center"/>
                     <CheckBox Content="Start minimized" IsChecked="{Binding StartMinimized}" VerticalAlignment="Center"/>
                 </StackPanel>

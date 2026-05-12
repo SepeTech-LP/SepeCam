@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 using System.Windows;
 using SepeCam.Core;
@@ -23,11 +24,14 @@ public partial class App : Application
             return;
         }
 
+        bool isFirstRun = !File.Exists(SettingsStore.DefaultPath);
         Config = Store.Load();
 
         try { SettingsApplier.ApplyToAllConnected(Config); } catch { }
 
         AutoStartup.RefreshPathIfRegistered();
+        if (isFirstRun) StartMenuShortcut.Install();
+        else StartMenuShortcut.RefreshIfInstalled();
 
         _tray = new TrayService();
         _tray.OpenRequested += (_, _) => ShowMain();
